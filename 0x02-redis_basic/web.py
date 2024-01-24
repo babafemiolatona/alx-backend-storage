@@ -2,24 +2,35 @@
 """Web module"""
 import redis
 import requests
-from typing import Callable
-from datetime import timedelta
+from functools import wraps
 
 
-def get_page(url: str) -> str:
+def cache_and_track(func):
     """
-    Returns the content of a URL after caching the request's response,
-    and tracking the request.
+    Decorator that takes a single method
+    and returns a single method
     """
-    if url is None or len(url.strip()) == 0:
-        return ''
-    redis_store = redis.Redis()
-    res_key = 'result:{}'.format(url)
-    req_key = 'count:{}'.format(url)
-    result = redis_store.get(res_key)
-    if result is not None:
+    @wraps(func)
+    def wrapper(url):
+        """Wrapper function"""
+        redis_store = redis.Redis()
+        res_key = f'result:{url}'
+        req_key = f'count:{url}'
+        result = redis_store.get(res_key)
+        if result is not None:
+            redis_store.incr(req_key)
+            return result.decode('utf-8')
+        result = func(url)
+        redis_store.setex(res_key, 10, result)
         redis_store.incr(req_key)
         return result
-    result = requests.get(url).content.decode('utf-8')
-    redis_store.setex(res_key, timedelta(seconds=10), result)
-    return result
+    return wrapper
+
+
+@cache_and_track
+def get_page(url: str) -> str:
+    """
+    Gets the HTML content of a particular URL
+    and returns it
+    """
+    return requests.get(url).content.decode('utf-8')
